@@ -1,0 +1,12 @@
+[Unit]
+Description=On-the-fly configuration of EC2 ephemeral disk for docker devicemapper storage backend
+After=docker.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=True
+Environment=LD_LIBRARY_PATH=/usr/lib:/usr/lib64:/usr/local/lib:$LD_LIBRARY_PATH
+ExecStart=/etc/systemd/system/docker-ephemeral-lvm.d/docker-ephemeral-lvm.sh
+
+[Install]
+WantedBy=multi-user.target

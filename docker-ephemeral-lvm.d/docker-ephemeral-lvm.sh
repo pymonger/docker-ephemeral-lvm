@@ -3,7 +3,7 @@
 # It is intended for EC2 instances with 2 ephemeral SSD instance stores like 
 # the c3.xlarge instance type.
 
-service docker stop || true
+systemctl stop docker || true
 
 # Setup Instance Store 1 for Docker volume storage
 DEV="/dev/xvdc"
@@ -38,4 +38,4 @@ if [[ -e "$DEV" ]]; then
   sed -i 's# "# --storage-opt dm.basesize=100GB "#' /etc/sysconfig/docker-storage
 fi
 
-service docker start
+systemctl start docker
