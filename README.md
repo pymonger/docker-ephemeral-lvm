@@ -3,6 +3,7 @@ Script for setting up the devicemapper docker storage backend on an EC2 ephemera
 
 Installation
 ------------
-1. sudo mv docker-ephemeral-lvm.* /etc/systemd/system/
-2. sudo systemctl enable docker-ephemeral-lvm
-3. sudo reboot
+1. sudo systemctl stop docker
+2. sudo mv docker-ephemeral-lvm.* /etc/systemd/system/
+3. sudo systemctl enable docker-ephemeral-lvm
+4. sudo systemctl start docker-ephemeral-lvm
