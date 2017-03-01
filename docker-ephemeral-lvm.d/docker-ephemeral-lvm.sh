@@ -20,12 +20,27 @@ if [[ -e "$DEV" ]]; then
   # remove physical volume
   pvremove -ff $DEV || true
 
+  # install cryptsetup
+  yum install -y cryptsetup || true
+
+  # generate random passphrase
+  PASSPHRASE=`hexdump -n 16 -e '4/4 "%08X" 1 "\n"' /dev/random`
+
+  # format the ephemeral volume with selected cipher
+  echo $PASSPHRASE | cryptsetup luksFormat -c twofish-xts-plain64 -s 512 --key-file=- $DEV
+
+  # open the encrypted volume to a mapped device
+  echo $PASSPHRASE | cryptsetup luksOpen --key-file=- $DEV ephemeral-encrypted
+
+  # set name of mapped device
+  DEV_ENC="/dev/mapper/ephemeral-encrypted"
+
   # determine 75% of volume size to be used for docker data
   DATA_SIZE=`lsblk -b $DEV | grep disk | awk '{printf "%.0f\n", $4/1024^3*.75}'`
 
   # create physical volume and volume group for docker
-  pvcreate -ff $DEV
-  vgcreate -ff  vg-docker $DEV
+  pvcreate -ff $DEV_ENC
+  vgcreate -ff  vg-docker $DEV_ENC
 
   # reconfigure docker storage for devicemapper
   echo "STORAGE_DRIVER=devicemapper" > /etc/sysconfig/docker-storage-setup
