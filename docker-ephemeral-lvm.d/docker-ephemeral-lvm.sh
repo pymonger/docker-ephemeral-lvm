@@ -1,12 +1,17 @@
 #!/bin/sh -e
-# This script will DESTROY /dev/xvdc and remount it for Docker volume storage.
+# This script will DESTROY /dev/xvdb|nvme0n1 and remount it for HySDS work dir.
+# This script will DESTROY /dev/xvdc|nvme1n1 and remount it for Docker volume storage.
 # It is intended for EC2 instances with 2 ephemeral SSD instance stores like 
-# the c3.xlarge instance type.
+# the c3.xlarge and i3.4xlarge instance types.
 
 systemctl stop docker || true
 
 # Setup Instance Store 1 for Docker volume storage
-DEV="/dev/xvdc"
+if [[ -e "/dev/nvme1n1" ]]; then
+  DEV="/dev/nvme1n1"
+else
+  DEV="/dev/xvdc"
+fi
 if [[ -e "$DEV" ]]; then
   # clean out docker
   rm -rf /var/lib/docker
@@ -57,7 +62,11 @@ systemctl start docker
 
 # Setup Instance Store 0 for HySDS work dir (/data) if mounted as /mnt
 DATA_DIR="/data"
-DATA_DEV="/dev/xvdb"
+if [[ -e "/dev/nvme0n1" ]]; then
+  DATA_DEV="/dev/nvme0n1"
+else
+  DATA_DEV="/dev/xvdb"
+fi
 if [[ -e "$DATA_DEV" ]]; then
   # clean out /mnt, /data and /data.orig
   rm -rf /mnt/cache /mnt/jobs /mnt/tasks
