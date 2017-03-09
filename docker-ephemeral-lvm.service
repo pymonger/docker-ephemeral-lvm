@@ -1,6 +1,6 @@
 [Unit]
 Description=On-the-fly configuration of EC2 ephemeral disk for docker devicemapper storage backend
-After=docker.target
+After=docker.service dm-event.service
 
 [Service]
 Type=oneshot
