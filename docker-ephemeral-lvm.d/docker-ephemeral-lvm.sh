@@ -58,7 +58,7 @@ systemctl start docker
 # Setup Instance Store 0 for HySDS work dir (/data) if mounted as /mnt
 DATA_DIR="/data"
 DATA_DEV="/dev/xvdb"
-if grep -s $DATA_DEV /proc/mounts | grep -qs /mnt; then
+if [[ -e "$DATA_DEV" ]]; then
   # clean out /mnt, /data and /data.orig
   rm -rf /mnt/cache /mnt/jobs /mnt/tasks
   rm -rf /data/work/cache /data/work/jobs /data/work/tasks
@@ -86,7 +86,7 @@ if grep -s $DATA_DEV /proc/mounts | grep -qs /mnt; then
   DATA_DEV_ENC="/dev/mapper/ephemeral-encrypted-data"
 
   # format XFS
-  mkfs.xfs $DATA_DEV_ENC
+  mkfs.xfs -f $DATA_DEV_ENC
 
   # mount as /data
   mount $DATA_DEV_ENC $DATA_DIR
