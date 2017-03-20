@@ -4,7 +4,25 @@
 # It is intended for EC2 instances with 2 ephemeral SSD instance stores like 
 # the c3.xlarge and i3.4xlarge instance types.
 
-systemctl stop docker || true
+# get user/group
+if [[ -d "/home/ec2-user" ]]; then
+  user="ec2-user"
+  group="ec2-user"
+else
+  user="ops"
+  group="ops"
+fi
+
+# get docker daemon start/stop commands
+if [[ -e "/bin/systemctl" ]]; then
+  start_docker="systemctl start docker"
+  stop_docker="systemctl stop docker"
+else
+  start_docker="service docker start"
+  stop_docker="service docker stop"
+fi
+
+$stop_docker || true
 
 # Setup Instance Store 1 for Docker volume storage
 if [[ -e "/dev/nvme1n1" ]]; then
@@ -58,7 +76,7 @@ if [[ -e "$DEV" ]]; then
   sed -i 's# "# --storage-opt dm.basesize=100GB "#' /etc/sysconfig/docker-storage
 fi
 
-systemctl start docker
+$start_docker || true
 
 # Setup Instance Store 0 for HySDS work dir (/data) if mounted as /mnt
 DATA_DIR="/data"
@@ -68,13 +86,13 @@ else
   DATA_DEV="/dev/xvdb"
 fi
 if [[ -e "$DATA_DEV" ]]; then
-  # clean out /mnt, /data and /data.orig
+  # clean out /mnt, ${DATA_DIR} and ${DATA_DIR}.orig
   rm -rf /mnt/cache /mnt/jobs /mnt/tasks
-  rm -rf /data/work/cache /data/work/jobs /data/work/tasks
-  rm -rf /data.orig
+  rm -rf ${DATA_DIR}/work/cache ${DATA_DIR}/work/jobs ${DATA_DIR}/work/tasks
+  rm -rf ${DATA_DIR}.orig
 
-  # backup /data/work and index style
-  cp -rp /data /data.orig || true
+  # backup ${DATA_DIR}/work and index style
+  cp -rp ${DATA_DIR} ${DATA_DIR}.orig || true
 
   # unmount block device if not already
   umount $DATA_DEV 2>/dev/null || true
@@ -97,12 +115,13 @@ if [[ -e "$DATA_DEV" ]]; then
   # format XFS
   mkfs.xfs -f $DATA_DEV_ENC
 
-  # mount as /data
+  # mount as ${DATA_DIR}
+  mkdir -p $DATA_DIR || true
   mount $DATA_DEV_ENC $DATA_DIR
 
   # set permissions
-  chown -R ops:ops /data || true
+  chown -R ${user}:${group} ${DATA_DIR} || true
 
   # copy work and index style
-  cp -rp /data.orig/work /data/ || true
+  cp -rp ${DATA_DIR}.orig/work ${DATA_DIR}/ || true
 fi
