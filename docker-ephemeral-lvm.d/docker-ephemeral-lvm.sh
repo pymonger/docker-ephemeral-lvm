@@ -22,7 +22,7 @@ else
   stop_docker="service docker stop"
 fi
 
-$stop_docker || true
+$stop_docker
 
 # Setup Instance Store 1 for Docker volume storage
 if [[ -e "/dev/nvme1n1" ]]; then
@@ -76,7 +76,7 @@ if [[ -e "$DEV" ]]; then
   sed -i 's# "# --storage-opt dm.basesize=100GB "#' /etc/sysconfig/docker-storage
 fi
 
-$start_docker || true
+$start_docker
 
 # Setup Instance Store 0 for HySDS work dir (/data) if mounted as /mnt
 DATA_DIR="/data"
@@ -123,5 +123,5 @@ if [[ -e "$DATA_DEV" ]]; then
   chown -R ${user}:${group} ${DATA_DIR} || true
 
   # copy work and index style
-  cp -rp ${DATA_DIR}.orig/work ${DATA_DIR}/ || true
+  cp -rp ${DATA_DIR}.pristine/work ${DATA_DIR}/ || true
 fi
