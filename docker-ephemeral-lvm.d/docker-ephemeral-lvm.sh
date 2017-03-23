@@ -79,8 +79,6 @@ if [[ -e "$DEV" ]]; then
   sed -i 's# "# --storage-opt dm.basesize=100GB "#' /etc/sysconfig/docker-storage
 fi
 
-$start_docker
-
 # Setup Instance Store 0 for HySDS work dir (/data) if mounted as /mnt
 DATA_DIR="/data"
 if [[ -e "/dev/nvme0n1" ]]; then
@@ -128,3 +126,5 @@ if [[ -e "$DATA_DEV" ]]; then
   # set permissions
   chown -R ${user}:${group} ${DATA_DIR} || true
 fi
+
+$start_docker
