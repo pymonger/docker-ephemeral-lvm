@@ -4,6 +4,9 @@
 # It is intended for EC2 instances with 2 ephemeral SSD instance stores like 
 # the c3.xlarge and i3.4xlarge instance types.
 
+# update system first
+yum update -y || true
+
 # get user/group
 if [[ -d "/home/ops" ]]; then
   user="ops"
