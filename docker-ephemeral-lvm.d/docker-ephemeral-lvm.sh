@@ -1,8 +1,9 @@
 #!/bin/sh -e
-# This script will DESTROY /dev/xvdb|nvme0n1 and remount it for HySDS work dir.
-# This script will DESTROY /dev/xvdc|nvme1n1 and remount it for Docker volume storage.
+# This script will DESTROY /dev/xvdb|ephemeral0 and remount it for HySDS work dir.
+# This script will DESTROY /dev/xvdc|ephemeral1 and remount it for Docker volume storage.
 # It is intended for EC2 instances with 2 ephemeral SSD instance stores like 
-# the c3.xlarge and i3.4xlarge instance types.
+# the c3.xlarge and i3.4xlarge instance types or for instances with EBS volumes
+# mounted to /dev/xvdb and /dev/xvdc.
 
 # update system first
 yum update -y || true
@@ -30,11 +31,15 @@ fi
 
 $stop_docker
 
+# get ephemeral disks
+EPH0=`curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ephemeral0`
+EPH1=`curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ephemeral1`
+
 # Setup Instance Store 1 for Docker volume storage
-if [[ -e "/dev/nvme1n1" ]]; then
-  DEV="/dev/nvme1n1"
-else
+if [[ ${EPH1:0:1} == "<" ]] ; then
   DEV="/dev/xvdc"
+else
+  DEV="/dev/${EPH1}"
 fi
 if [[ -e "$DEV" ]]; then
   # clean out docker
@@ -84,10 +89,10 @@ fi
 
 # Setup Instance Store 0 for HySDS work dir (/data) if mounted as /mnt
 DATA_DIR="/data"
-if [[ -e "/dev/nvme0n1" ]]; then
-  DATA_DEV="/dev/nvme0n1"
-else
+if [[ ${EPH0:0:1} == "<" ]] ; then
   DATA_DEV="/dev/xvdb"
+else
+  DATA_DEV="/dev/${EPH0}"
 fi
 if [[ -e "$DATA_DEV" ]]; then
   # clean out /mnt, ${DATA_DIR} and ${DATA_DIR}.orig
