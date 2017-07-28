@@ -33,14 +33,22 @@ $stop_docker
 
 # get ephemeral disks
 EPH0=`curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ephemeral0`
+echo "ephemeral0: $EPH0"
 EPH1=`curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ephemeral1`
+echo "ephemeral1: $EPH1"
 
 # Setup Instance Store 1 for Docker volume storage
 if [[ ${EPH1:0:1} == "<" ]] ; then
   DEV="/dev/xvdc"
 else
-  DEV="/dev/${EPH1}"
+  # instances utilizing NVMe will have incorrect mount in EC2 metadata; handle this case
+  if [[ -e "/dev/nvme1n1" ]]; then
+    DEV="/dev/nvme1n1"
+  else
+    DEV="/dev/${EPH1}"
+  fi
 fi
+echo "DEV: $DEV"
 if [[ -e "$DEV" ]]; then
   # clean out docker
   rm -rf /var/lib/docker
@@ -92,8 +100,14 @@ DATA_DIR="/data"
 if [[ ${EPH0:0:1} == "<" ]] ; then
   DATA_DEV="/dev/xvdb"
 else
-  DATA_DEV="/dev/${EPH0}"
+  # instances utilizing NVMe will have incorrect mount in EC2 metadata; handle this case
+  if [[ -e "/dev/nvme0n1" ]]; then
+    DATA_DEV="/dev/nvme0n1"
+  else
+    DATA_DEV="/dev/${EPH0}"
+  fi
 fi
+echo "DATA_DEV: $DATA_DEV"
 if [[ -e "$DATA_DEV" ]]; then
   # clean out /mnt, ${DATA_DIR} and ${DATA_DIR}.orig
   rm -rf /mnt/cache /mnt/jobs /mnt/tasks
