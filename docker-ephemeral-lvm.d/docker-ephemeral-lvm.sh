@@ -1,6 +1,6 @@
 #!/bin/sh -e
-# This script will DESTROY ebs2|ephemeral0 and remount it for HySDS work dir.
-# This script will DESTROY ebs3|ephemeral1 and remount it for Docker volume storage.
+# This script will DESTROY ebs1|ephemeral0 and remount it for HySDS work dir.
+# This script will DESTROY ebs2|ephemeral1 and remount it for Docker volume storage.
 
 # update system first
 yum update -y || true
@@ -32,12 +32,12 @@ $stop_docker
 EPH0=`curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ephemeral0`
 echo "ephemeral0: $EPH0"
 if [[ ${EPH0:0:1} == "<" || ${EPH0} == "" ]] ; then
-  EBS2=`curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ebs2`
-  echo "ebs2: $EBS2"
-  if [[ ${EBS2:0:1} == "<" || ${EBS2} == "" ]] ; then
+  EBS1=`curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ebs1`
+  echo "ebs1: $EBS1"
+  if [[ ${EBS1:0:1} == "<" || ${EBS1} == "" ]] ; then
     DATA_DEV="/dev/xvdb"
   else
-    DATA_DEV="/dev/${EBS2}"
+    DATA_DEV="/dev/${EBS1}"
   fi
 else
   DATA_DEV="/dev/${EPH0}"
@@ -49,12 +49,12 @@ echo "DATA_DEV: $DATA_DEV"
 EPH1=`curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ephemeral1`
 echo "ephemeral1: $EPH1"
 if [[ ${EPH1:0:1} == "<" || ${EPH1} == "" ]] ; then
-  EBS3=`curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ebs3`
-  echo "ebs3: $EBS3"
-  if [[ ${EBS3:0:1} == "<" || ${EBS3} == "" ]] ; then
+  EBS2=`curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ebs2`
+  echo "ebs2: $EBS2"
+  if [[ ${EBS2:0:1} == "<" || ${EBS2} == "" ]] ; then
     DEV="/dev/xvdc"
   else
-    DEV="/dev/${EBS3}"
+    DEV="/dev/${EBS2}"
   fi
 else
   DEV="/dev/${EPH1}"
