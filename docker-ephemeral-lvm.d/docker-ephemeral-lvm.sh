@@ -1,6 +1,6 @@
 #!/bin/sh -e
-# This script will DESTROY ebs1|ephemeral0 and remount it for HySDS work dir.
-# This script will DESTROY ebs2|ephemeral1 and remount it for Docker volume storage.
+# This script will DESTROY the first ephemeral/EBS volume and remount it for HySDS work dir.
+# This script will DESTROY the second ephemeral/EBS volume and remount it for Docker volume storage.
 
 # update system first
 yum update -y || true
@@ -28,53 +28,53 @@ fi
 
 $stop_docker
 
-# get disk for HySDS work dir (/data)
-EPH0=`curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ephemeral0`
-echo "ephemeral0: $EPH0"
-if [[ ${EPH0:0:1} == "<" || ${EPH0} == "" ]] ; then
-  EBS1=`curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ebs1`
-  echo "ebs1: $EBS1"
-  if [[ ${EBS1:0:1} == "<" || ${EBS1} == "" ]] ; then
-    DATA_DEV="/dev/xvdb"
-  else
-    DATA_DEV="/dev/${EBS1}"
+# get ephemeral storage devices
+EPH_BLK_DEVS=( `curl -s http://169.254.169.254/latest/meta-data/block-device-mapping | grep ^ephemeral | sort` )
+EPH_BLK_DEVS_CNT=${#EPH_BLK_DEVS[@]}
+echo "Number of ephemeral storage devices: $EPH_BLK_DEVS_CNT"
+
+# get EBS block devices
+EBS_BLK_DEVS=( `curl -s http://169.254.169.254/latest/meta-data/block-device-mapping | grep ^ebs | sort` )
+EBS_BLK_DEVS_CNT=${#EBS_BLK_DEVS[@]}
+echo "Number of EBS block devices: $EBS_BLK_DEVS_CNT"
+
+# delegate devices for HySDS work dir and docker storage volumes
+if [ "$EPH_BLK_DEVS_CNT" -ge 2 ]; then
+  DATA_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[0]})
+  DOCKER_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[1]})
+elif [ "$EPH_BLK_DEVS_CNT" -eq 1 ]; then
+  DATA_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[0]})
+  if [ "$EBS_BLK_DEVS_CNT" -ge 1 ]; then
+    DOCKER_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
   fi
 else
-  DATA_DEV="/dev/${EPH0}"
+  if [ "$EBS_BLK_DEVS_CNT" -ge 2 ]; then
+    DATA_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
+    DOCKER_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[1]})
+  elif [ "$EBS_BLK_DEVS_CNT" -eq 1 ]; then
+    DATA_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
+  fi
 fi
-DATA_DEV=$(readlink -f $DATA_DEV) # resolve symlinks
+
+# resolve symlinks
+DATA_DEV=$(readlink -f $DATA_DEV)
+DOCKER_DEV=$(readlink -f $DOCKER_DEV)
 echo "DATA_DEV: $DATA_DEV"
+echo "DOCKER_DEV: $DOCKER_DEV"
 
-# get disk for Docker volume storage
-EPH1=`curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ephemeral1`
-echo "ephemeral1: $EPH1"
-if [[ ${EPH1:0:1} == "<" || ${EPH1} == "" ]] ; then
-  EBS2=`curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ebs2`
-  echo "ebs2: $EBS2"
-  if [[ ${EBS2:0:1} == "<" || ${EBS2} == "" ]] ; then
-    DEV="/dev/xvdc"
-  else
-    DEV="/dev/${EBS2}"
-  fi
-else
-  DEV="/dev/${EPH1}"
-fi
-DEV=$(readlink -f $DEV) # resolve symlinks
-echo "DEV: $DEV"
-
-# Setup Instance Store 1 for Docker volume storage
-if [[ -e "$DEV" ]]; then
+# Setup docker volume storage
+if [[ -e "$DOCKER_DEV" ]]; then
   # clean out docker
   rm -rf /var/lib/docker
 
   # unmount block device if not already
-  umount $DEV 2>/dev/null || true
+  umount $DOCKER_DEV 2>/dev/null || true
 
   # remove volume group
   vgremove -ff vg-docker || true
 
   # remove physical volume
-  pvremove -ff $DEV || true
+  pvremove -ff $DOCKER_DEV || true
 
   # install cryptsetup
   yum install -y cryptsetup || true
@@ -83,20 +83,20 @@ if [[ -e "$DEV" ]]; then
   PASSPHRASE=`hexdump -n 16 -e '4/4 "%08X" 1 "\n"' /dev/random`
 
   # format the ephemeral volume with selected cipher
-  echo $PASSPHRASE | cryptsetup luksFormat -c twofish-xts-plain64 -s 512 --key-file=- $DEV
+  echo $PASSPHRASE | cryptsetup luksFormat -c twofish-xts-plain64 -s 512 --key-file=- $DOCKER_DEV
 
   # open the encrypted volume to a mapped device
-  echo $PASSPHRASE | cryptsetup luksOpen --key-file=- $DEV ephemeral-encrypted
+  echo $PASSPHRASE | cryptsetup luksOpen --key-file=- $DOCKER_DEV ephemeral-encrypted
 
   # set name of mapped device
-  DEV_ENC="/dev/mapper/ephemeral-encrypted"
+  DOCKER_DEV_ENC="/dev/mapper/ephemeral-encrypted"
 
   # determine 75% of volume size to be used for docker data
-  DATA_SIZE=`lsblk -b $DEV | grep disk | awk '{printf "%.0f\n", $4/1024^3*.75}'`
+  DATA_SIZE=`lsblk -b $DOCKER_DEV | grep disk | awk '{printf "%.0f\n", $4/1024^3*.75}'`
 
   # create physical volume and volume group for docker
-  pvcreate -ff $DEV_ENC
-  vgcreate -ff  vg-docker $DEV_ENC
+  pvcreate -ff $DOCKER_DEV_ENC
+  vgcreate -ff  vg-docker $DOCKER_DEV_ENC
 
   # reconfigure docker storage for devicemapper
   echo "STORAGE_DRIVER=devicemapper" > /etc/sysconfig/docker-storage-setup
@@ -109,7 +109,7 @@ if [[ -e "$DEV" ]]; then
   sed -i 's# "# --storage-opt dm.basesize=100GB "#' /etc/sysconfig/docker-storage
 fi
 
-# Setup Instance Store 0 for HySDS work dir (/data) if mounted as /mnt
+# Setup HySDS work dir (/data) if mounted as /mnt
 DATA_DIR="/data"
 if [[ -e "$DATA_DEV" ]]; then
   # clean out /mnt, ${DATA_DIR} and ${DATA_DIR}.orig
