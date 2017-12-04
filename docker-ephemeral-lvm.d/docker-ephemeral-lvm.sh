@@ -29,12 +29,12 @@ fi
 $stop_docker
 
 # get ephemeral storage devices
-EPH_BLK_DEVS=( `curl -s http://169.254.169.254/latest/meta-data/block-device-mapping | grep ^ephemeral | sort` )
+EPH_BLK_DEVS=( `curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ | grep ^ephemeral | sort` )
 EPH_BLK_DEVS_CNT=${#EPH_BLK_DEVS[@]}
 echo "Number of ephemeral storage devices: $EPH_BLK_DEVS_CNT"
 
 # get EBS block devices
-EBS_BLK_DEVS=( `curl -s http://169.254.169.254/latest/meta-data/block-device-mapping | grep ^ebs | sort` )
+EBS_BLK_DEVS=( `curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/ | grep ^ebs | sort` )
 EBS_BLK_DEVS_CNT=${#EBS_BLK_DEVS[@]}
 echo "Number of EBS block devices: $EBS_BLK_DEVS_CNT"
 
@@ -46,6 +46,8 @@ elif [ "$EPH_BLK_DEVS_CNT" -eq 1 ]; then
   DATA_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[0]})
   if [ "$EBS_BLK_DEVS_CNT" -ge 1 ]; then
     DOCKER_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
+  else
+    DOCKER_DEV=/dev/xvdc
   fi
 else
   if [ "$EBS_BLK_DEVS_CNT" -ge 2 ]; then
@@ -53,6 +55,10 @@ else
     DOCKER_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[1]})
   elif [ "$EBS_BLK_DEVS_CNT" -eq 1 ]; then
     DATA_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
+    DOCKER_DEV=/dev/xvdc
+  else
+    DATA_DEV=/dev/xvdb
+    DOCKER_DEV=/dev/xvdc
   fi
 fi
 
