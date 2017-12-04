@@ -65,6 +65,16 @@ fi
 # resolve symlinks
 DATA_DEV=$(readlink -f $DATA_DEV)
 DOCKER_DEV=$(readlink -f $DOCKER_DEV)
+
+# i3 instances utilizing NVMe will have incorrect mount in EC2 metadata; handle this case
+if [[ ! -e "$DATA_DEV" && -e "/dev/nvme0n1" ]]; then
+  DATA_DEV=/dev/nvme0n1
+fi
+if [[ ! -e "$DOCKER_DEV" && -e "/dev/nvme1n1" ]]; then
+  DOCKER_DEV=/dev/nvme1n1
+fi
+
+# log devices
 echo "DATA_DEV: $DATA_DEV"
 echo "DOCKER_DEV: $DOCKER_DEV"
 
