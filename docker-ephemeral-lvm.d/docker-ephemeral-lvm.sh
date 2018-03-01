@@ -40,25 +40,25 @@ echo "Number of EBS block devices: $EBS_BLK_DEVS_CNT"
 
 # delegate devices for HySDS work dir and docker storage volumes
 if [ "$EPH_BLK_DEVS_CNT" -ge 2 ]; then
-  DATA_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[0]})
-  DOCKER_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[1]})
+  DOCKER_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[0]})
+  DATA_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[1]})
 elif [ "$EPH_BLK_DEVS_CNT" -eq 1 ]; then
-  DATA_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[0]})
+  DOCKER_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[0]})
   if [ "$EBS_BLK_DEVS_CNT" -ge 1 ]; then
-    DOCKER_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
+    DATA_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
   else
-    DOCKER_DEV=/dev/xvdc
+    DATA_DEV=/dev/xvdc
   fi
 else
   if [ "$EBS_BLK_DEVS_CNT" -ge 2 ]; then
-    DATA_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
-    DOCKER_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[1]})
+    DOCKER_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
+    DATA_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[1]})
   elif [ "$EBS_BLK_DEVS_CNT" -eq 1 ]; then
-    DATA_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
-    DOCKER_DEV=/dev/xvdc
+    DOCKER_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
+    DATA_DEV=/dev/xvdc
   else
-    DATA_DEV=/dev/xvdb
-    DOCKER_DEV=/dev/xvdc
+    DOCKER_DEV=/dev/xvdb
+    DATA_DEV=/dev/xvdc
   fi
 fi
 
@@ -67,11 +67,11 @@ DATA_DEV=$(readlink -f $DATA_DEV)
 DOCKER_DEV=$(readlink -f $DOCKER_DEV)
 
 # i3 instances utilizing NVMe will have incorrect mount in EC2 metadata; handle this case
-if [[ ! -e "$DATA_DEV" && -e "/dev/nvme0n1" ]]; then
-  DATA_DEV=/dev/nvme0n1
+if [[ ! -e "$DOCKER_DEV" && -e "/dev/nvme0n1" ]]; then
+  DOCKER_DEV=/dev/nvme0n1
 fi
-if [[ ! -e "$DOCKER_DEV" && -e "/dev/nvme1n1" ]]; then
-  DOCKER_DEV=/dev/nvme1n1
+if [[ ! -e "$DATA_DEV" && -e "/dev/nvme1n1" ]]; then
+  DATA_DEV=/dev/nvme1n1
 fi
 
 # log devices
