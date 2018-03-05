@@ -38,40 +38,57 @@ EBS_BLK_DEVS=( `curl -s http://169.254.169.254/latest/meta-data/block-device-map
 EBS_BLK_DEVS_CNT=${#EBS_BLK_DEVS[@]}
 echo "Number of EBS block devices: $EBS_BLK_DEVS_CNT"
 
-# delegate devices for HySDS work dir and docker storage volumes
+# set devices
 if [ "$EPH_BLK_DEVS_CNT" -ge 2 ]; then
-  DOCKER_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[0]})
-  DATA_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[1]})
+  DEV1=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[0]})
+  DEV2=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[1]})
 elif [ "$EPH_BLK_DEVS_CNT" -eq 1 ]; then
-  DOCKER_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[0]})
+  DEV1=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EPH_BLK_DEVS[0]})
   if [ "$EBS_BLK_DEVS_CNT" -ge 1 ]; then
-    DATA_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
+    DEV2=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
   else
-    DATA_DEV=/dev/xvdc
+    DEV2=/dev/xvdc
   fi
 else
   if [ "$EBS_BLK_DEVS_CNT" -ge 2 ]; then
-    DOCKER_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
-    DATA_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[1]})
+    DEV1=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
+    DEV2=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[1]})
   elif [ "$EBS_BLK_DEVS_CNT" -eq 1 ]; then
-    DOCKER_DEV=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
-    DATA_DEV=/dev/xvdc
+    DEV1=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]})
+    DEV2=/dev/xvdc
   else
-    DOCKER_DEV=/dev/xvdb
-    DATA_DEV=/dev/xvdc
+    DEV1=/dev/xvdb
+    DEV2=/dev/xvdc
   fi
 fi
 
 # resolve symlinks
-DATA_DEV=$(readlink -f $DATA_DEV)
-DOCKER_DEV=$(readlink -f $DOCKER_DEV)
+DEV1=$(readlink -f $DEV1)
+DEV2=$(readlink -f $DEV2)
 
 # i3 instances utilizing NVMe will have incorrect mount in EC2 metadata; handle this case
-if [[ ! -e "$DOCKER_DEV" && -e "/dev/nvme0n1" ]]; then
-  DOCKER_DEV=/dev/nvme0n1
+if [[ ! -e "$DEV1" && -e "/dev/nvme0n1" ]]; then
+  DEV1=/dev/nvme0n1
 fi
-if [[ ! -e "$DATA_DEV" && -e "/dev/nvme1n1" ]]; then
-  DATA_DEV=/dev/nvme1n1
+if [[ ! -e "$DEV2" && -e "/dev/nvme1n1" ]]; then
+  DEV2=/dev/nvme1n1
+fi
+
+# get sizes
+DEV1_SIZE=$(blockdev --getsize64 $DEV1)
+DEV2_SIZE=$(blockdev --getsize64 $DEV2)
+
+# log device sizes
+echo "DEV1: $DEV1 $DEV1_SIZE"
+echo "DEV2: $DEV2 $DEV2_SIZE"
+
+# delegate devices for HySDS work dir and docker storage volumes; larger one is for HySDS work dir
+if [ "$DEV1_SIZE" -gt "$DEV2_SIZE" ]; then
+  DATA_DEV=$DEV1
+  DOCKER_DEV=$DEV2
+else
+  DATA_DEV=$DEV2
+  DOCKER_DEV=$DEV1
 fi
 
 # log devices
