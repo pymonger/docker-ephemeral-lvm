@@ -160,7 +160,7 @@ if [[ -e "$DATA_DEV" ]]; then
 
   # create work and unpack index style
   mkdir -p ${DATA_DIR}/work || true
-  tar xvfj ~${user}/verdi/src/beefed-autoindex-open_in_new_win.tbz2 -C ${DATA_DIR}/work || true
+  tar xvfj $(eval echo "~${user}/verdi/src/beefed-autoindex-open_in_new_win.tbz2") -C ${DATA_DIR}/work || true
 
   # set permissions
   chown -R ${user}:${group} ${DATA_DIR} || true
