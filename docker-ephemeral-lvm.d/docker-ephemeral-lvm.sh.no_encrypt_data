@@ -66,12 +66,22 @@ fi
 DEV1=$(readlink -f $DEV1)
 DEV2=$(readlink -f $DEV2)
 
-# i3 instances utilizing NVMe will have incorrect mount in EC2 metadata; handle this case
-if [[ ! -e "$DEV1" && -e "/dev/nvme0n1" ]]; then
-  DEV1=/dev/nvme0n1
-fi
-if [[ ! -e "$DEV2" && -e "/dev/nvme1n1" ]]; then
-  DEV2=/dev/nvme1n1
+# handle NVMe devices
+if [[ ! -e "$DEV1" && ! -e "$DEV2" ]]; then
+  # install NVMe CLI
+  yum install -y nvme-cli || true
+
+  # get root device
+  ROOT_DEV=$(df -hv / | grep '^/dev' | awk '{print $1}' | sed 's/p1//')
+
+  # get other devices
+  NVME_EBS_BLK_DEVS=( `nvme list | grep -v ${ROOT_DEV} | grep '^/dev/' | awk '{print $1}' | sort` )
+  NVME_EBS_BLK_DEVS_CNT=${#NVME_EBS_BLK_DEVS[@]}
+  echo "Number of NVMe EBS block devices: $NVME_EBS_BLK_DEVS_CNT"
+
+  # assign devices
+  DEV1=${NVME_EBS_BLK_DEVS[0]}
+  DEV2=${NVME_EBS_BLK_DEVS[1]}
 fi
 
 # get sizes
@@ -148,8 +158,9 @@ if [[ -e "$DATA_DEV" ]]; then
   mkdir -p $DATA_DIR || true
   mount $DATA_DEV $DATA_DIR
 
-  # copy work and index style
-  cp -rp ${DATA_DIR}.pristine/work ${DATA_DIR}/ || true
+  # create work and unpack index style
+  mkdir -p ${DATA_DIR}/work || true
+  tar xvfj ~ops/${user}/src/beefed-autoindex-open_in_new_win.tbz2 -C ${DATA_DIR}/work || true
 
   # set permissions
   chown -R ${user}:${group} ${DATA_DIR} || true
