@@ -66,24 +66,45 @@ fi
 DEV1=$(readlink -f $DEV1)
 DEV2=$(readlink -f $DEV2)
 
-# handle NVMe devices
+# resolve NVMe devices
 if [[ ! -e "$DEV1" && ! -e "$DEV2" ]]; then
-  # install NVMe CLI
   yum install -y nvme-cli || true
+  NVME_NODES=( `nvme list | grep '^/dev/' | awk '{print $1}' | sort` )
+  NVME_NODES_CNT=${#NVME_NODES[@]}
+  if [[ "${NVME_NODES_CNT}" -gt 0 ]]; then
+    # get root device and node
+    ROOT_DEV=$(df -hv / | grep '^/dev' | awk '{print $1}')
+    for nvme_dev in `nvme list | grep -v ${ROOT_DEV} | grep '^/dev/' | awk '{print $1}' | sort`; do
+      if [[ $ROOT_DEV = ${nvme_dev}* ]]; then
+        ROOT_NODE=$nvme_dev
+      fi
+    done
 
-  # get root device
-  ROOT_DEV=$(df -hv / | grep '^/dev' | awk '{print $1}' | sed 's/p1//')
-
-  # get other devices
-  NVME_EBS_BLK_DEVS=( `nvme list | grep -v ${ROOT_DEV} | grep '^/dev/' | awk '{print $1}' | sort` )
-  NVME_EBS_BLK_DEVS_CNT=${#NVME_EBS_BLK_DEVS[@]}
-  echo "Number of NVMe EBS block devices: $NVME_EBS_BLK_DEVS_CNT"
-
-  # assign devices
-  DEV1=${NVME_EBS_BLK_DEVS[0]}
-  DEV2=${NVME_EBS_BLK_DEVS[1]}
+    # get other devices
+    if [ -z ${ROOT_NODE+x} ]; then
+        NVME_EBS_BLK_DEVS=( `nvme list |  grep '^/dev/' | awk '{print $1}' | sort` )
+    else
+        NVME_EBS_BLK_DEVS=( `nvme list | grep -v ${ROOT_NODE} | grep '^/dev/' | awk '{print $1}' | sort` )
+    fi
+    NVME_EBS_BLK_DEVS_CNT=${#NVME_EBS_BLK_DEVS[@]}
+    echo "Number of NVMe EBS block devices: $NVME_EBS_BLK_DEVS_CNT"
+  
+    # assign devices
+    if [ "$NVME_EBS_BLK_DEVS_CNT" -ge 2 ]; then
+      DEV1=${NVME_EBS_BLK_DEVS[0]}
+      DEV2=${NVME_EBS_BLK_DEVS[1]}
+    elif [ "$NVME_EBS_BLK_DEVS_CNT" -eq 1 ]; then
+      DEV1=${NVME_EBS_BLK_DEVS[0]}
+      DEV2=/dev/xvdc
+    else
+      DEV1=/dev/xvdb
+      DEV2=/dev/xvdc
+    fi
+  else
+    DEV1=/dev/xvdb
+    DEV2=/dev/xvdc
+  fi
 fi
-
 # get sizes
 DEV1_SIZE=$(blockdev --getsize64 $DEV1)
 DEV2_SIZE=$(blockdev --getsize64 $DEV2)
