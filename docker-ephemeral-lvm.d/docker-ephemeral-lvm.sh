@@ -156,7 +156,7 @@ if [[ -e "$DATA_DEV" ]]; then
 
   # create docker dir
   mkdir -p ${DATA_DIR}/var/lib/docker
-  rm -rf /var/lib/docker
+  rm -rf /var/lib/docker || mv -f /var/lib/docker /var/lib/docker.orig
   ln -sf ${DATA_DIR}/var/lib/docker /var/lib/docker
 fi
 
