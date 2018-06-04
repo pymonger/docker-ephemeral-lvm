@@ -126,53 +126,6 @@ fi
 echo "DATA_DEV: $DATA_DEV"
 echo "DOCKER_DEV: $DOCKER_DEV"
 
-# Setup docker volume storage
-if [[ -e "$DOCKER_DEV" ]]; then
-  # clean out docker
-  rm -rf /var/lib/docker
-
-  # unmount block device if not already
-  umount $DOCKER_DEV 2>/dev/null || true
-
-  # remove volume group
-  vgremove -ff vg-docker || true
-
-  # remove physical volume
-  pvremove -ff $DOCKER_DEV || true
-
-  # install cryptsetup
-  yum install -y cryptsetup || true
-
-  # generate random passphrase
-  PASSPHRASE=`hexdump -n 16 -e '4/4 "%08X" 1 "\n"' /dev/random`
-
-  # format the ephemeral volume with selected cipher
-  echo $PASSPHRASE | cryptsetup luksFormat -c twofish-xts-plain64 -s 512 --key-file=- $DOCKER_DEV
-
-  # open the encrypted volume to a mapped device
-  echo $PASSPHRASE | cryptsetup luksOpen --key-file=- $DOCKER_DEV ephemeral-encrypted
-
-  # set name of mapped device
-  DOCKER_DEV_ENC="/dev/mapper/ephemeral-encrypted"
-
-  # determine 75% of volume size to be used for docker data
-  DATA_SIZE=`lsblk -b $DOCKER_DEV | grep disk | awk '{printf "%.0f\n", $4/1024^3*.75}'`
-
-  # create physical volume and volume group for docker
-  pvcreate -ff $DOCKER_DEV_ENC
-  vgcreate -ff  vg-docker $DOCKER_DEV_ENC
-
-  # reconfigure docker storage for devicemapper
-  echo "STORAGE_DRIVER=devicemapper" > /etc/sysconfig/docker-storage-setup
-  echo "VG=vg-docker" >> /etc/sysconfig/docker-storage-setup
-  echo "DATA_SIZE=${DATA_SIZE}G" >> /etc/sysconfig/docker-storage-setup
-  rm -f /etc/sysconfig/docker-storage
-  docker-storage-setup
-
-  # update maximum size for image or container
-  sed -i 's# "# --storage-opt dm.basesize=100GB "#' /etc/sysconfig/docker-storage
-fi
-
 # Setup HySDS work dir (/data) if mounted as /mnt
 DATA_DIR="/data"
 if [[ -e "$DATA_DEV" ]]; then
@@ -215,6 +168,58 @@ if [[ -e "$DATA_DEV" ]]; then
 
   # set permissions
   chown -R ${user}:${group} ${DATA_DIR} || true
+
+  # create docker dir
+  mkdir -p ${DATA_DIR}/var/lib/docker
+  rm -rf /var/lib/docker
+  ln -sf ${DATA_DIR}/var/lib/docker /var/lib/docker
+fi
+
+# Setup docker volume storage
+if [[ -e "$DOCKER_DEV" ]]; then
+  # clean out docker
+  rm -rf /var/lib/docker/*
+
+  # unmount block device if not already
+  umount $DOCKER_DEV 2>/dev/null || true
+
+  # remove volume group
+  vgremove -ff vg-docker || true
+
+  # remove physical volume
+  pvremove -ff $DOCKER_DEV || true
+
+  # install cryptsetup
+  yum install -y cryptsetup || true
+
+  # generate random passphrase
+  PASSPHRASE=`hexdump -n 16 -e '4/4 "%08X" 1 "\n"' /dev/random`
+
+  # format the ephemeral volume with selected cipher
+  echo $PASSPHRASE | cryptsetup luksFormat -c twofish-xts-plain64 -s 512 --key-file=- $DOCKER_DEV
+
+  # open the encrypted volume to a mapped device
+  echo $PASSPHRASE | cryptsetup luksOpen --key-file=- $DOCKER_DEV ephemeral-encrypted
+
+  # set name of mapped device
+  DOCKER_DEV_ENC="/dev/mapper/ephemeral-encrypted"
+
+  # determine 75% of volume size to be used for docker data
+  DATA_SIZE=`lsblk -b $DOCKER_DEV | grep disk | awk '{printf "%.0f\n", $4/1024^3*.75}'`
+
+  # create physical volume and volume group for docker
+  pvcreate -ff $DOCKER_DEV_ENC
+  vgcreate -ff  vg-docker $DOCKER_DEV_ENC
+
+  # reconfigure docker storage for devicemapper
+  echo "STORAGE_DRIVER=devicemapper" > /etc/sysconfig/docker-storage-setup
+  echo "VG=vg-docker" >> /etc/sysconfig/docker-storage-setup
+  echo "DATA_SIZE=${DATA_SIZE}G" >> /etc/sysconfig/docker-storage-setup
+  rm -f /etc/sysconfig/docker-storage
+  docker-storage-setup
+
+  # update maximum size for image or container
+  sed -i 's# "# --storage-opt dm.basesize=100GB "#' /etc/sysconfig/docker-storage
 fi
 
 $start_docker
