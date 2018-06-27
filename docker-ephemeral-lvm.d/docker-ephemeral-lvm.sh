@@ -169,7 +169,7 @@ if [[ -e "$DOCKER_DEV" ]]; then
   umount $DOCKER_DEV 2>/dev/null || true
 
   # remove volume group
-  vgremove -ff vg-docker || true
+  vgremove -ff docker || true
 
   # remove physical volume
   pvremove -ff $DOCKER_DEV || true
@@ -179,17 +179,38 @@ if [[ -e "$DOCKER_DEV" ]]; then
 
   # create physical volume and volume group for docker
   pvcreate -ff $DOCKER_DEV
-  vgcreate -ff  vg-docker $DOCKER_DEV
+  vgcreate -ff docker $DOCKER_DEV
 
-  # reconfigure docker storage for devicemapper
-  echo "STORAGE_DRIVER=devicemapper" > /etc/sysconfig/docker-storage-setup
-  echo "VG=vg-docker" >> /etc/sysconfig/docker-storage-setup
-  echo "DATA_SIZE=${DATA_SIZE}G" >> /etc/sysconfig/docker-storage-setup
-  rm -f /etc/sysconfig/docker-storage
-  docker-storage-setup
+  # create logical volumes
+  lvcreate --wipesignatures y -n thinpool docker -l 95%VG
+  lvcreate --wipesignatures y -n thinpoolmeta docker -l 1%VG
 
-  # update maximum size for image or container
-  sed -i 's# "# --storage-opt dm.basesize=100GB "#' /etc/sysconfig/docker-storage
+  # convert logical volumes to a thin pool and storage location for metadata
+  lvconvert -y --zero n -c 512K --thinpool docker/thinpool --poolmetadata docker/thinpoolmeta
+
+  # configure autoextension of thin pools
+  echo "activation {" > /etc/lvm/profile/docker-thinpool.profile
+  echo "  thin_pool_autoextend_threshold=80" >> /etc/lvm/profile/docker-thinpool.profile
+  echo "  thin_pool_autoextend_percent=20" >> /etc/lvm/profile/docker-thinpool.profile
+  echo "}" >> /etc/lvm/profile/docker-thinpool.profile
+
+  # apply LVM profile
+  lvchange --metadataprofile docker-thinpool docker/thinpool
+
+  # enable monitoring for logical volumes
+  lvs -o+seg_monitor
+
+  # configure docker daemon for devicemapper
+  echo '{' > /etc/docker/daemon.json
+  echo '  "storage-driver": "devicemapper",' >> /etc/docker/daemon.json
+  echo '  "storage-opts": [' >> /etc/docker/daemon.json
+  echo '    "dm.fs=xfs",' >> /etc/docker/daemon.json
+  echo '    "dm.thinpooldev=/dev/mapper/docker-thinpool",' >> /etc/docker/daemon.json
+  echo '    "dm.use_deferred_removal=true",' >> /etc/docker/daemon.json
+  echo '    "dm.use_deferred_deletion=true",' >> /etc/docker/daemon.json
+  echo '    "dm.basesize=100GB"' >> /etc/docker/daemon.json
+  echo '  ]' >> /etc/docker/daemon.json
+  echo '}' >> /etc/docker/daemon.json
 fi
 
 $start_docker
