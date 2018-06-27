@@ -19,9 +19,11 @@ fi
 
 # get docker daemon start/stop commands
 if [[ -e "/bin/systemctl" ]]; then
+  reset_docker="systemctl reset-failed docker"
   start_docker="systemctl start docker"
   stop_docker="systemctl stop docker"
 else
+  reset_docker=""
   start_docker="service docker start"
   stop_docker="service docker stop"
 fi
@@ -213,4 +215,5 @@ if [[ -e "$DOCKER_DEV" ]]; then
   echo '}' >> /etc/docker/daemon.json
 fi
 
+$reset_docker
 $start_docker
