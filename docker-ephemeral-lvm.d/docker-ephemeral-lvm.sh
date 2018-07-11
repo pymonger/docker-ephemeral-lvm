@@ -82,25 +82,54 @@ if [[ ! -e "$DEV1" && ! -e "$DEV2" ]]; then
       fi
     done
 
-    # get other devices
+    # get instance storage devices
     if [ -z ${ROOT_NODE+x} ]; then
-        NVME_EBS_BLK_DEVS=( `nvme list |  grep '^/dev/' | awk '{print $1}' | sort` )
+        NVME_EPH_BLK_DEVS=( `nvme list |  grep '^/dev/' | grep -i 'Instance Storage' | awk '{print $1}' | sort` )
     else
-        NVME_EBS_BLK_DEVS=( `nvme list | grep -v ${ROOT_NODE} | grep '^/dev/' | awk '{print $1}' | sort` )
+        NVME_EPH_BLK_DEVS=( `nvme list | grep -v ${ROOT_NODE} | grep '^/dev/' | grep -i 'Instance Storage' | awk '{print $1}' | sort` )
+    fi
+    NVME_EPH_BLK_DEVS_CNT=${#NVME_EPH_BLK_DEVS[@]}
+    echo "Number of NVMe local storage block devices: $NVME_EPH_BLK_DEVS_CNT"
+
+    # get EBS devices
+    if [ -z ${ROOT_NODE+x} ]; then
+        NVME_EBS_BLK_DEVS=( `nvme list |  grep '^/dev/' | grep 'Elastic Block Store' | awk '{print $1}' | sort` )
+    else
+        NVME_EBS_BLK_DEVS=( `nvme list | grep -v ${ROOT_NODE} | grep '^/dev/' | grep 'Elastic Block Store' | awk '{print $1}' | sort` )
     fi
     NVME_EBS_BLK_DEVS_CNT=${#NVME_EBS_BLK_DEVS[@]}
     echo "Number of NVMe EBS block devices: $NVME_EBS_BLK_DEVS_CNT"
   
     # assign devices
-    if [ "$NVME_EBS_BLK_DEVS_CNT" -ge 2 ]; then
-      DEV1=${NVME_EBS_BLK_DEVS[0]}
-      DEV2=${NVME_EBS_BLK_DEVS[1]}
-    elif [ "$NVME_EBS_BLK_DEVS_CNT" -eq 1 ]; then
-      DEV1=${NVME_EBS_BLK_DEVS[0]}
-      DEV2=/dev/xvdc
+    if [ "$NVME_EPH_BLK_DEVS_CNT" -ge 2 ]; then
+      DEV1=${NVME_EPH_BLK_DEVS[0]}
+      DEV2=${NVME_EPH_BLK_DEVS[1]}
+    elif [ "$NVME_EPH_BLK_DEVS_CNT" -eq 1 ]; then
+      DEV1=${NVME_EPH_BLK_DEVS[0]}
+      if [ "$NVME_EBS_BLK_DEVS_CNT" -ge 1 ]; then
+        DEV2=${NVME_EBS_BLK_DEVS[0]}
+      else
+        if [ "$EBS_BLK_DEVS_CNT" -ge 1 ]; then
+          DEV2=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]} | sed 's/^sd/xvd/')
+        else
+          DEV2=/dev/xvdb
+        fi
+      fi
     else
-      DEV1=/dev/xvdb
-      DEV2=/dev/xvdc
+      if [ "$NVME_EBS_BLK_DEVS_CNT" -ge 2 ]; then
+        DEV1=${NVME_EBS_BLK_DEVS[0]}
+        DEV2=${NVME_EBS_BLK_DEVS[1]}
+      elif [ "$NVME_EBS_BLK_DEVS_CNT" -eq 1 ]; then
+        DEV1=${NVME_EBS_BLK_DEVS[0]}
+        if [ "$EBS_BLK_DEVS_CNT" -ge 1 ]; then
+          DEV2=/dev/$(curl -s http://169.254.169.254/latest/meta-data/block-device-mapping/${EBS_BLK_DEVS[0]} | sed 's/^sd/xvd/')
+        else
+          DEV2=/dev/xvdb
+        fi
+      else
+        DEV1=/dev/xvdb
+        DEV2=/dev/xvdc
+      fi
     fi
   else
     DEV1=/dev/xvdb
@@ -115,13 +144,20 @@ DEV2_SIZE=$(blockdev --getsize64 $DEV2)
 echo "DEV1: $DEV1 $DEV1_SIZE"
 echo "DEV2: $DEV2 $DEV2_SIZE"
 
-# delegate devices for HySDS work dir and docker storage volumes; larger one is for HySDS work dir
-if [ "$DEV1_SIZE" -gt "$DEV2_SIZE" ]; then
-  DATA_DEV=$DEV1
-  DOCKER_DEV=$DEV2
-else
-  DATA_DEV=$DEV2
+# delegate devices for HySDS work dir and docker storage volumes; 
+# if only one ephemeral disk, use for docker; # otherwise larger 
+# one is for HySDS work dir
+if [[ "$EPH_BLK_DEVS_CNT" -eq 1 || "$NVME_EPH_BLK_DEVS_CNT" -eq 1 ]]; then
   DOCKER_DEV=$DEV1
+  DATA_DEV=$DEV2
+else
+  if [ "$DEV1_SIZE" -gt "$DEV2_SIZE" ]; then
+    DATA_DEV=$DEV1
+    DOCKER_DEV=$DEV2
+  else
+    DATA_DEV=$DEV2
+    DOCKER_DEV=$DEV1
+  fi
 fi
 
 # log devices
@@ -176,43 +212,51 @@ if [[ -e "$DOCKER_DEV" ]]; then
   # remove physical volume
   pvremove -ff $DOCKER_DEV || true
 
-  # determine 75% of volume size to be used for docker data
-  DATA_SIZE=`lsblk -b $DOCKER_DEV | grep disk | awk '{printf "%.0f\n", $4/1024^3*.75}'`
-
-  # create physical volume and volume group for docker
-  pvcreate -ff $DOCKER_DEV
-  vgcreate -ff docker $DOCKER_DEV
-
-  # create logical volumes
-  lvcreate --wipesignatures y -n thinpool docker -l 95%VG
-  lvcreate --wipesignatures y -n thinpoolmeta docker -l 1%VG
-
-  # convert logical volumes to a thin pool and storage location for metadata
-  lvconvert -y --zero n -c 512K --thinpool docker/thinpool --poolmetadata docker/thinpoolmeta
-
-  # configure autoextension of thin pools
-  echo "activation {" > /etc/lvm/profile/docker-thinpool.profile
-  echo "  thin_pool_autoextend_threshold=80" >> /etc/lvm/profile/docker-thinpool.profile
-  echo "  thin_pool_autoextend_percent=20" >> /etc/lvm/profile/docker-thinpool.profile
-  echo "}" >> /etc/lvm/profile/docker-thinpool.profile
-
-  # apply LVM profile
-  lvchange --metadataprofile docker-thinpool docker/thinpool
-
-  # enable monitoring for logical volumes
-  lvs -o+seg_monitor
+#  # determine 75% of volume size to be used for docker data
+#  DATA_SIZE=`lsblk -b $DOCKER_DEV | grep disk | awk '{printf "%.0f\n", $4/1024^3*.75}'`
+#
+#  # create physical volume and volume group for docker
+#  pvcreate -ff $DOCKER_DEV
+#  vgcreate -ff docker $DOCKER_DEV
+#
+#  # create logical volumes
+#  lvcreate --wipesignatures y -n thinpool docker -l 95%VG
+#  lvcreate --wipesignatures y -n thinpoolmeta docker -l 1%VG
+#
+#  # convert logical volumes to a thin pool and storage location for metadata
+#  lvconvert -y --zero n -c 512K --thinpool docker/thinpool --poolmetadata docker/thinpoolmeta
+#
+#  # configure autoextension of thin pools
+#  echo "activation {" > /etc/lvm/profile/docker-thinpool.profile
+#  echo "  thin_pool_autoextend_threshold=80" >> /etc/lvm/profile/docker-thinpool.profile
+#  echo "  thin_pool_autoextend_percent=20" >> /etc/lvm/profile/docker-thinpool.profile
+#  echo "}" >> /etc/lvm/profile/docker-thinpool.profile
+#
+#  # apply LVM profile
+#  lvchange --metadataprofile docker-thinpool docker/thinpool
+#
+#  # enable monitoring for logical volumes
+#  lvs -o+seg_monitor
 
   # configure docker daemon for devicemapper
-  echo '{' > /etc/docker/daemon.json
-  echo '  "storage-driver": "devicemapper",' >> /etc/docker/daemon.json
-  echo '  "storage-opts": [' >> /etc/docker/daemon.json
-  echo '    "dm.fs=xfs",' >> /etc/docker/daemon.json
-  echo '    "dm.thinpooldev=/dev/mapper/docker-thinpool",' >> /etc/docker/daemon.json
-  echo '    "dm.use_deferred_removal=true",' >> /etc/docker/daemon.json
-  echo '    "dm.use_deferred_deletion=true",' >> /etc/docker/daemon.json
-  echo '    "dm.basesize=100GB"' >> /etc/docker/daemon.json
-  echo '  ]' >> /etc/docker/daemon.json
-  echo '}' >> /etc/docker/daemon.json
+  cat << EOF > /etc/docker/daemon.json
+{
+  "storage-driver": "devicemapper",
+  "storage-opts": [
+    "dm.directlvm_device=${DOCKER_DEV}",
+    "dm.thinp_percent=95",
+    "dm.thinp_metapercent=1",
+    "dm.thinp_autoextend_threshold=80",
+    "dm.thinp_autoextend_percent=20",
+    "dm.directlvm_device_force=true",
+    "dm.use_deferred_removal=true",
+    "dm.use_deferred_deletion=true",
+    "dm.fs=xfs",
+    "dm.basesize=100G"
+  ]
+}
+EOF
+
 fi
 
 $reset_docker
